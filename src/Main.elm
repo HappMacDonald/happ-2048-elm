@@ -46,8 +46,171 @@ boardHeight =
 sprinkleValueGenerator : Random.Generator Int
 sprinkleValueGenerator =
     Random.weighted
-        (   90, 2 )
-        [   (   10, 4 ) ]
+        -- (   90, 2 )
+        (   10, 2 )
+        [   (   10, 4 )
+        ,   (   10, 8 )
+        ,   (   10, 16 )
+        ,   (   10, 32 )
+        ,   (   10, 64 )
+        ,   (   10, 128 )
+        ,   (   10, 256 )
+        ,   (   10, 512 )
+        ,   (   10, 1024 )
+        ,   (   10, 2048 )
+        ,   (   10, 4096 )
+        ]
+
+interCellX = 15
+interCellY = 15
+cellEdge = 15
+cellsWide = 2
+cellsTall = 2
+cellRoundingRadius = 3
+cellWidth = 106
+cellHeight = 106
+gameRoundingRadius = 6
+gameFontColor = (Element.rgb255 0x77 0x6e 0x65)
+reverseFontColor = (Element.rgb255 0xf9 0xf6 0xf2)
+gameBackground = (Element.rgb255 0xfa 0xf8 0xef)
+gameBorderColor = (Element.rgb255 0xbb 0xad 0xa0)
+
+
+polynomial : List Float -> Float -> Float
+polynomial coefficients variable =
+    case coefficients of
+        [] ->
+            0 -- addititve identity
+      
+        zeroCoefficient :: tail ->
+            zeroCoefficient + variable * ( polynomial tail variable )
+            -- zeroCoefficient
+            -- |>  Debug.log "coefficient plus "
+            -- |>  (+)
+            --     (   ( Debug.log "  variable" variable )
+            --     |>  (*) ( Debug.log "  x rest " ( polynomial tail variable ) )
+            --     |>  Debug.log "  ="
+            --     )
+            -- |>  Debug.log "="
+
+
+cellFontSize : String -> Int
+cellFontSize value =
+    if value == " " then 55
+    else
+        value
+        -- |>  Debug.log "value"
+        |>  String.length
+        |>  toFloat
+        |>  (\x -> 180 / (x+1) )
+        |>  round
+        |>  min 55
+        -- |>  Debug.log "gets size"
+
+
+cellFontColor : String -> Element.Color
+cellFontColor value =
+    let
+        valueLog =
+            value
+            |>  String.toFloat
+            |>  Maybe.withDefault 0
+            |>  logBase 2
+
+    in
+    if valueLog<3 then gameFontColor
+    else reverseFontColor
+
+cellBackgroundColorRed : Float -> Int
+cellBackgroundColorRed valueLog = 
+    let
+        q = Debug.log "valueLog" valueLog
+    in
+    (   if valueLog < 6.9 then
+        polynomial [255.1667, -30.14815, 15.71528, -2.949074, 0.1875] valueLog
+        else polynomial [237] valueLog
+    )
+    |>  round
+    |>  Debug.log "red"
+
+
+cellBackgroundColorGreen : Float -> Int
+cellBackgroundColorGreen valueLog =
+    (   if valueLog < 6.9
+        -- then polynomial [254.8, -26.8] valueLog
+        then polynomial [120.6667, 199.2487, -111.8472, 21.73148, -1.458333] valueLog
+        else polynomial [229.75, -3.25] valueLog
+    )
+    |>  round
+    |>  Debug.log "green"
+
+
+cellBackgroundColorBlue : Float -> Int
+cellBackgroundColorBlue valueLog =
+    (   if valueLog < 6.9
+        then
+            polynomial
+                [   1314.34545454545537433326
+                ,   -3115.96692190163013333414
+                ,   3462.88659765071792963762
+                ,   -1951.21196581196733660399
+                ,   602.94741075917596278009
+                ,   -103.89124183006545178397
+                ,   9.38143790849674109432
+                ,   -0.34659197012138225229
+                ]
+                valueLog
+        else polynomial [233, -17] valueLog
+    )
+    |>  round
+    |>  Debug.log "blue"
+
+
+cellBackgroundColor : String -> Element.Color
+cellBackgroundColor value =
+    let
+        valueLog =
+            value
+            |>  String.toFloat
+            |>  Maybe.withDefault 0
+            |>  logBase 2
+
+    in
+        if value == " "
+        then Element.rgba255 238 228 218 0.35
+        else
+            Element.rgb255
+                ( cellBackgroundColorRed valueLog )
+                ( cellBackgroundColorGreen valueLog )
+                ( cellBackgroundColorBlue valueLog )
+
+
+
+sixtyThirds : String -> Int -> Float
+sixtyThirds value multiplier =
+    if value == " " then 0
+    else
+        value
+        -- |>  Debug.log "value"
+        |>  String.length
+        |>  (*) multiplier
+        |>  toFloat
+        |>  (\x -> x / 63)
+        |>  max 0
+        -- |>  Debug.log "gets size"
+
+outerGlowRadius = 30
+outerGlowColor : String -> Element.Color
+outerGlowColor value =
+    sixtyThirds value 5
+    |> Element.rgba 243 215 116
+
+
+innerGlowRadius = 1
+innerGlowColor : String -> Element.Color
+innerGlowColor value =
+    sixtyThirds value 5
+    |> Element.rgba 0xFF 0xFF 0xFF
 
 
 
@@ -251,18 +414,31 @@ view {board} =
                         |>  Element.el
                             [   Element.width Element.fill
                             ,   Font.center
-                            ,   Font.size 48
+                            ,   displayValue
+                                |>  cellFontSize
+                                |>  Font.size 
+                            ,   Font.bold
+                            ,   displayValue
+                                |>  cellFontColor
+                                |>  Font.color
                             ,   Element.centerX
                             ,   Element.centerY
                             ]
                         |>  Element.el
-                            [   Element.width Element.fill
-                            ,   Element.height Element.fill
+                            [   Element.width (Element.px cellWidth)
+                            ,   Element.height (Element.px cellHeight)
                             ,   Font.center
                             ,   Element.centerX
                             ,   Element.centerY
-                            ,   Border.color <| Element.rgb 0.5 0.5 0.5
-                            ,   Border.width 1
+                            ,   displayValue
+                                -- |>  Debug.log "value"
+                                |>  cellBackgroundColor
+                                -- |>  Debug.log "gets bkg color"
+                                |>  Background.color
+                            ,   Border.rounded cellRoundingRadius
+                            ,   Border.glow
+                                    ( outerGlowColor displayValue )
+                                    outerGlowRadius
                             ]
 
                 in
@@ -277,8 +453,7 @@ view {board} =
                                     ,   Element.height Element.fill
                                     ,   Element.centerX
                                     ,   Element.centerY
-                                    ,   Element.padding 2
-                                    ,   Element.spacingXY 2 0
+                                    ,   Element.spacing interCellY
                                     ]
                                 )
                                 :: resultRows
@@ -295,19 +470,27 @@ view {board} =
             }
     |> .resultRows
     |>  Element.column
-        [   Element.width <| Element.px 400
-        ,   Element.height <| Element.px 400
-        ,   Element.centerX
+        [   Element.centerX
         ,   Element.centerY
-        ,   Element.padding 2
-        ,   Element.spacingXY 0 2
-        ,   Border.color <| Element.rgb 0.5 0.5 0.5
-        ,   Border.width 1
+        ,   Element.spacing interCellX
+        ,   Element.padding cellEdge
+        ,   Background.color gameBorderColor
+        ,   Border.rounded gameRoundingRadius
+        -- ,   Border.width 1
+        -- ,   Element.explain Debug.todo
         ]
     |>  Element.layout
         [   Element.width Element.fill
         ,   Element.height Element.fill
         ,   Element.centerX
         ,   Element.centerY
+        ,   Background.color gameBackground
+        ,   Font.color gameFontColor
+        ,   Font.family
+            [   Font.typeface "Clear Sans"
+            ,   Font.typeface "Helvetica Neue"
+            ,   Font.typeface "Arial"
+            ,   Font.sansSerif
+            ]
         ]
 
