@@ -26,8 +26,12 @@ import Element.Border as Border
 import Element.Font as Font
 import Element.Input as Input
 import Browser
+import Browser.Events
 import Html exposing (Html)
 import Array exposing (Array)
+import Html.Events
+import Json.Decode as Decode
+
 
 
 -- TOP LEVEL CONSTANTS
@@ -46,26 +50,24 @@ boardHeight =
 sprinkleValueGenerator : Random.Generator Int
 sprinkleValueGenerator =
     Random.weighted
-        -- (   90, 2 )
-        (   10, 2 )
+        (   90, 2 )
+        -- (   10, 2 )
         [   (   10, 4 )
-        ,   (   10, 8 )
-        ,   (   10, 16 )
-        ,   (   10, 32 )
-        ,   (   10, 64 )
-        ,   (   10, 128 )
-        ,   (   10, 256 )
-        ,   (   10, 512 )
-        ,   (   10, 1024 )
-        ,   (   10, 2048 )
-        ,   (   10, 4096 )
+        -- ,   (   10, 8 )
+        -- ,   (   10, 16 )
+        -- ,   (   10, 32 )
+        -- ,   (   10, 64 )
+        -- ,   (   10, 128 )
+        -- ,   (   10, 256 )
+        -- ,   (   10, 512 )
+        -- ,   (   10, 1024 )
+        -- ,   (   10, 2048 )
+        -- ,   (   10, 4096 )
         ]
 
 interCellX = 15
 interCellY = 15
 cellEdge = 15
-cellsWide = 2
-cellsTall = 2
 cellRoundingRadius = 3
 cellWidth = 106
 cellHeight = 106
@@ -84,14 +86,6 @@ polynomial coefficients variable =
       
         zeroCoefficient :: tail ->
             zeroCoefficient + variable * ( polynomial tail variable )
-            -- zeroCoefficient
-            -- |>  Debug.log "coefficient plus "
-            -- |>  (+)
-            --     (   ( Debug.log "  variable" variable )
-            --     |>  (*) ( Debug.log "  x rest " ( polynomial tail variable ) )
-            --     |>  Debug.log "  ="
-            --     )
-            -- |>  Debug.log "="
 
 
 cellFontSize : String -> Int
@@ -99,13 +93,11 @@ cellFontSize value =
     if value == " " then 55
     else
         value
-        -- |>  Debug.log "value"
         |>  String.length
         |>  toFloat
         |>  (\x -> 180 / (x+1) )
         |>  round
         |>  min 55
-        -- |>  Debug.log "gets size"
 
 
 cellFontColor : String -> Element.Color
@@ -123,15 +115,11 @@ cellFontColor value =
 
 cellBackgroundColorRed : Float -> Int
 cellBackgroundColorRed valueLog = 
-    let
-        q = Debug.log "valueLog" valueLog
-    in
     (   if valueLog < 6.9 then
         polynomial [255.1667, -30.14815, 15.71528, -2.949074, 0.1875] valueLog
         else polynomial [237] valueLog
     )
     |>  round
-    |>  Debug.log "red"
 
 
 cellBackgroundColorGreen : Float -> Int
@@ -142,7 +130,6 @@ cellBackgroundColorGreen valueLog =
         else polynomial [229.75, -3.25] valueLog
     )
     |>  round
-    |>  Debug.log "green"
 
 
 cellBackgroundColorBlue : Float -> Int
@@ -163,7 +150,6 @@ cellBackgroundColorBlue valueLog =
         else polynomial [233, -17] valueLog
     )
     |>  round
-    |>  Debug.log "blue"
 
 
 cellBackgroundColor : String -> Element.Color
@@ -191,13 +177,12 @@ sixtyThirds value multiplier =
     if value == " " then 0
     else
         value
-        -- |>  Debug.log "value"
         |>  String.length
         |>  (*) multiplier
         |>  toFloat
         |>  (\x -> x / 63)
         |>  max 0
-        -- |>  Debug.log "gets size"
+
 
 outerGlowRadius = 30
 outerGlowColor : String -> Element.Color
@@ -241,10 +226,15 @@ type Cell
         ,   moving : Int
         ,   from : Offset
         }
+    |   OutOfBounds
 
 
 type alias GameBoard =
     Array Cell
+
+type alias BoardIterator =
+    { boardSoFar : GameBoard, index : Int }
+
 
 
 type alias Model =
@@ -253,7 +243,7 @@ type alias Model =
     }
 
 
--- INIT
+-- HELPER FUNCTIONS
 
 
 countEmptyCells : GameBoard -> Int
@@ -268,6 +258,9 @@ countEmptyCells board =
                     empties
 
                 DynamicCell _ ->
+                    empties
+
+                OutOfBounds ->
                     empties
 
         )
@@ -292,6 +285,9 @@ injectNthEmpty injectIndex injectCell board =
                 DynamicCell _ ->
                     (emptyIndex, cell :: resultList)
 
+                OutOfBounds ->
+                    (emptyIndex, cell :: resultList)
+
         )
         (injectIndex, [])
     |> Tuple.second
@@ -308,13 +304,133 @@ decrementBy offset base =
     base - offset
 
 
+playOffset : Offset -> Model -> Model
+playOffset (Offset x y) ({board, currentSeed} as model) =
+    let
+        offset1D =
+            y*4 + x
+        
+        walkDirection =
+            if offset1D > 0
+            then -1 -- you're walking against the direction tiles slide
+            else 1
+        
+        walkerFunction =
+            if offset1D > 0
+            then Array.foldr
+            else Array.foldl
+
+        maxPosition =
+            boardWidth * boardHeight - 1
+
+        firstPosition =
+            if offset1D > 0
+            then maxPosition
+            else 0
+
+        walkFunction : Cell -> BoardIterator -> BoardIterator
+        walkFunction cell {boardSoFar, index} =
+            let
+                targetIndexMaybe : Maybe Int -- "Nothing" means leaving bounds
+                targetIndexMaybe =
+                    let
+                        uncookedTargetIndex =
+                            index + offset1D
+                    in
+                        (   --  check top bounds
+                            if  uncookedTargetIndex < 0
+
+                            --  check bottom bounds
+                            ||  uncookedTargetIndex > maxPosition
+
+                            --  check left bounds
+                            --  clever trick to measure distance from left side
+                            --  -x represents "how far we're supposed to move left"
+                            ||  modBy boardWidth index < -x
+
+                            --  check right bounds
+                            --  even cleverer trick to measure distance from right side
+                            --  x represents "how far we're supposed to move right"
+                            ||  modBy boardWidth (-1-index) < x
+
+                            then Nothing
+                            else Just uncookedTargetIndex
+                        )
+
+                targetCellOld =
+                    case targetIndexMaybe of
+                        Nothing ->
+                            OutOfBounds
+
+                        Just targetIndex ->
+                            boardSoFar
+                            |>  Array.get targetIndex
+                            -- "Nothing" should be unobtainable, but still..
+                            |>  Maybe.withDefault OutOfBounds
+
+                targetCellNew =
+                    case targetCellOld of
+                        EmptyCell ->
+                            cell -- replace empty with what we're moving
+
+                        StaticCell _ ->
+                            targetCellOld -- no movement
+
+                        DynamicCell _ ->
+                            targetCellOld -- no movement
+
+                        OutOfBounds ->
+                            targetCellOld -- no movement
+
+                currentCellNew =
+                    case targetCellOld of
+                        EmptyCell ->
+                            EmptyCell -- Our tile moved away
+
+                        StaticCell _ ->
+                            cell -- no movement
+
+                        DynamicCell _ ->
+                            cell -- no movement
+
+                        OutOfBounds ->
+                            cell -- no movement
+
+                boardNew =
+                    case targetIndexMaybe of
+                        Nothing ->
+                            boardSoFar -- guaranteed no movement
+
+                        Just targetIndex ->
+                            boardSoFar -- still possibly no movement
+                            |>  Array.set index currentCellNew
+                            |>  Array.set targetIndex targetCellNew
+
+            in
+            {   boardSoFar = boardNew
+            ,   index = index + walkDirection
+            }
+
+
+    in
+        {   model
+        |   board =
+                board
+                |>  walkerFunction
+                        walkFunction
+                        {   boardSoFar = board
+                        ,   index = firstPosition
+                        }
+                |>  .boardSoFar
+        }
+
+
 sprinkle : Model -> Model
 sprinkle ({board, currentSeed} as model) =
     let
         ( emptyIndex, seed0 ) =
             Random.step
                 (   countEmptyCells board
-                -- |>  Debug.log "empty cells"
                 |>  decrementBy 1
                 |>  Random.int 0
                 )
@@ -325,8 +441,6 @@ sprinkle ({board, currentSeed} as model) =
                 (   sprinkleValueGenerator
                 )
                 seed0
-
-        -- x = Debug.log "sprinkle to " emptyIndex
         
     in
         {   model
@@ -336,6 +450,8 @@ sprinkle ({board, currentSeed} as model) =
                 seed1
         }
 
+
+-- INIT
 
 
 init : () -> ( Model, Cmd Msg )
@@ -355,6 +471,7 @@ init _ =
 type Msg
     =   Reset
     |   Seed Random.Seed
+    |   KeyDown Offset
     -- |   Sprinkle
     --     {   emptyIndex : Int
     --     ,   value : Int
@@ -378,15 +495,58 @@ update msg model =
                 }
                 |> sprinkle 
                 |> sprinkle
-                -- |> Debug.log "post sprinkle model"
             ,   Cmd.none
-            )        
+            )
+
+        KeyDown offset ->
+            (   model
+            |>  playOffset offset
+            |>  sprinkle
+            ,   Cmd.none
+            )
+
 
 -- SUBSCRIPTIONS
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
-    Sub.none
+subscriptions _ =
+    -- By itself, `Events.onKeyDown keyDecoder` will create a subscription
+    -- of keys, not messages. The `Sub.map` here tells Elm to wrap all values
+    -- from that subscription in our `KeyDown` message
+    Sub.map KeyDown (Browser.Events.onKeyDown keyDecoder)
+
+
+keyDecoder : Decode.Decoder Offset
+keyDecoder =
+    -- Decode a custom type as describe here:
+    -- https://thoughtbot.com/blog/5-common-json-decoders#1---decoding-union-types
+    Decode.field "key" Decode.string
+        |> Decode.andThen offsetFromString
+
+
+offsetFromString : String -> Decode.Decoder Offset
+offsetFromString string =
+    case string of
+        "ArrowUp" ->
+            Offset 0 -1
+            |>  Decode.succeed
+
+        "ArrowDown" ->
+            Offset 0 1
+            |>  Decode.succeed
+
+        "ArrowLeft" ->
+            Offset -1 0
+            |>  Decode.succeed
+
+        "ArrowRight" ->
+            Offset 1 0
+            |>  Decode.succeed
+
+        _ ->
+            -- Fail the decoder if not an arrow key. When used in an event
+            -- handler events that failed to decode are ignored
+            Decode.fail (string ++ " is not an arrow key")
 
 
 -- VIEW
@@ -407,6 +567,9 @@ view {board} =
 
                             DynamicCell { merged } ->
                                 String.fromInt merged
+
+                            OutOfBounds ->
+                                " "
 
                     displayCell =
                         displayValue
@@ -431,9 +594,7 @@ view {board} =
                             ,   Element.centerX
                             ,   Element.centerY
                             ,   displayValue
-                                -- |>  Debug.log "value"
                                 |>  cellBackgroundColor
-                                -- |>  Debug.log "gets bkg color"
                                 |>  Background.color
                             ,   Border.rounded cellRoundingRadius
                             ,   Border.glow
@@ -476,8 +637,6 @@ view {board} =
         ,   Element.padding cellEdge
         ,   Background.color gameBorderColor
         ,   Border.rounded gameRoundingRadius
-        -- ,   Border.width 1
-        -- ,   Element.explain Debug.todo
         ]
     |>  Element.layout
         [   Element.width Element.fill
