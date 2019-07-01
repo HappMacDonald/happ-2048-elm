@@ -225,6 +225,7 @@ type Cell
         ,   incumbent : Int
         ,   moving : Int
         ,   from : Offset
+        -- ,   createdOn: Time..?
         }
     |   OutOfBounds
 
