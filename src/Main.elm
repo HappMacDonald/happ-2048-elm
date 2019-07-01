@@ -230,6 +230,9 @@ type Cell
     |   OutOfBounds
 
 
+{-|
+2d board described as 1d array
+-}
 type alias GameBoard =
     Array Cell
 
@@ -247,23 +250,28 @@ type alias Model =
 -- HELPER FUNCTIONS
 
 
+doToEmptyCells : a -> a -> Cell -> a
+doToEmptyCells doToEmpty doToNonempty cell =
+    case cell of
+        EmptyCell ->
+            doToEmpty
+
+        StaticCell _ ->
+            doToNonempty
+
+        DynamicCell _ ->
+            doToNonempty
+
+        OutOfBounds ->
+            doToNonempty
+
+
 countEmptyCells : GameBoard -> Int
 countEmptyCells board =
     Array.foldl
         (\cell empties ->
-            case cell of
-                EmptyCell ->
-                    empties + 1
-                    
-                StaticCell _ ->
-                    empties
-
-                DynamicCell _ ->
-                    empties
-
-                OutOfBounds ->
-                    empties
-
+            cell
+            |> doToEmptyCells (empties + 1) empties
         )
         0
         board
@@ -274,20 +282,13 @@ injectNthEmpty injectIndex injectCell board =
     board
     |> Array.foldr
         (\cell (emptyIndex, resultList) ->
-            case cell of
-                EmptyCell ->
-                    if emptyIndex == 0
+            cell
+            |> doToEmptyCells
+                (   if emptyIndex == 0
                         then (-1, injectCell :: resultList)
                         else (emptyIndex-1, cell :: resultList)
-                    
-                StaticCell _ ->
-                    (emptyIndex, cell :: resultList)
-
-                DynamicCell _ ->
-                    (emptyIndex, cell :: resultList)
-
-                OutOfBounds ->
-                    (emptyIndex, cell :: resultList)
+                )
+                (emptyIndex, cell :: resultList)
 
         )
         (injectIndex, [])
